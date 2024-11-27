@@ -1,3 +1,22 @@
+
+/*
+  By Koushik Ghosh
+  for Complete project details, contact @koushik97563@gmail.com 
+  
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files.
+  
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+*/
+
+/*
+ * Koushik Ghosh
+ * 
+ * 
+ * 
+ */
+
 /* ======================================== Including the libraries. */
 #include <Arduino.h>
 #include <WiFi.h>
@@ -194,27 +213,14 @@ void enable_capture_Photo_with_PIR(bool state) {
   }
 }
 
+/* ________________________________________________________________________________ */
+
 /* ________________________________________________________________________________ Function to read settings in EEPROM for "capture photos with PIR Sensor" mode.*/
 bool capture_Photo_with_PIR_state() {
   return EEPROM.read(1);
 }
-/*-----------------------------------------------------------------------------------------Add the new flipImage function here*/
-void flipImage(camera_fb_t *fb) {
-    uint8_t *buffer = (uint8_t *)malloc(fb->len);
-    if (!buffer) {
-        Serial.println("malloc failed");
-        return;
-    }
+/* ________________________________________________________________________________ */
 
-    for (size_t i = 0; i < fb->height; i++) {
-        memcpy(&buffer[i * fb->width], &fb->buf[(fb->height - 1 - i) * fb->width], fb->width);
-    }
-
-    memcpy(fb->buf, buffer, fb->len);
-    free(buffer);
-}
-
-//________________________________________________________________________________ Subroutine for camera configuration. 
 /* ________________________________________________________________________________ Subroutine for camera configuration. */
 void configInitCamera(){
   camera_config_t config;
@@ -250,7 +256,7 @@ void configInitCamera(){
     config.jpeg_quality = 12;  
     config.fb_count = 1;
   }
-  
+  /* ---------------------------------------- */
 
   /* ---------------------------------------- camera init. */
   esp_err_t err = esp_camera_init(&config);
@@ -259,7 +265,9 @@ void configInitCamera(){
     Serial.println();
     Serial.println("Restart ESP32 Cam");
     delay(1000);
-    ESP.restart(); 
+    ESP.restart();
+  }
+  /* ---------------------------------------- */
 
   /* ---------------------------------------- Drop down frame size for higher initial frame rate (Set the frame size and quality here) */
   /*
@@ -292,15 +300,15 @@ void configInitCamera(){
    * QQVGA  = 160 x 120   pixels
    */
   sensor_t * s = esp_camera_sensor_get();
-  s->set_framesize(s, FRAMESIZE_UXGA);  //--> FRAMESIZE_ + UXGA|SXGA|XGA|SVGA|VGA|CIF|QVGA|HQVGA|QQVGA  // Set to highest resolution
-  s->set_vflip(s, 1);  // Flip vertically
-  s->set_hmirror(s, 1);  // Mirror horizontally
+  s->set_framesize(s, FRAMESIZE_SXGA);  //--> FRAMESIZE_ + UXGA|SXGA|XGA|SVGA|VGA|CIF|QVGA|HQVGA|QQVGA
+  /* ---------------------------------------- */
 }
+/* ________________________________________________________________________________ */
+
 /* ________________________________________________________________________________ Subroutines to handle what to do after a new message arrives. */
 void handleNewMessages(int numNewMessages) {
   Serial.print("Handle New Messages: ");
-  //Serial.println(numNewMessages);
-  Serial.println(String(numNewMessages));
+  Serial.println(numNewMessages);
 
   /* ---------------------------------------- "For Loop" to check the contents of the newly received message. */
   for (int i = 0; i < numNewMessages; i++) {
@@ -337,7 +345,7 @@ void handleNewMessages(int numNewMessages) {
      continue;
     }
 
-    
+    /* ::::::::::::::::: */
 
     /* ::::::::::::::::: Print the received message. */
     String text = bot.messages[i].text;
@@ -460,135 +468,159 @@ void handleNewMessages(int numNewMessages) {
   }
   /* ---------------------------------------- */
 }
+/* ________________________________________________________________________________ */
+
 /* ________________________________________________________________________________ Subroutine for the process of taking and sending photos. */
 String sendPhotoTelegram() {
   const char* myDomain = "api.telegram.org";
   String getAll = "";
   String getBody = "";
 
+  /* ---------------------------------------- The process of taking photos. */
+  Serial.println("Taking a photo...");
+
+  /* ::::::::::::::::: Turns on LED FLash if setting is "enable_capture_Photo_With_Flash(ON);". */
+  if(capture_Photo_With_Flash_state() == ON) {
+    LEDFlash_State(ON);
+  }
+  delay(1500);
+  /* ::::::::::::::::: */
+  
+  /* ::::::::::::::::: Taking a photo. */ 
   camera_fb_t * fb = NULL;
   fb = esp_camera_fb_get();  
   if(!fb) {
     Serial.println("Camera capture failed");
+    Serial.println("Restart ESP32 Cam");
+    delay(1000);
+    ESP.restart();
     return "Camera capture failed";
   }  
+  /* ::::::::::::::::: */
 
-  Serial.println("Sending photo to Telegram");
-  
+  /* ::::::::::::::::: Turn off the LED Flash after successfully taking photos. */
   if(capture_Photo_With_Flash_state() == ON) {
     LEDFlash_State(OFF);
   }
+  /* ::::::::::::::::: */
+  Serial.println("Successful photo taking.");
+  /* ---------------------------------------- */
+  
 
-  flipImage(fb);
+  /* ---------------------------------------- The process of sending photos. */
+  Serial.println("Connect to " + String(myDomain));
 
-  for (int i = 0; i < NUM_CHAT_IDS; i++) {
-    int retries = 3;
-    while (retries > 0) {
-      Serial.printf("Attempting to send photo to chat ID: %s (Attempt %d)\n", CHAT_IDS[i], 4-retries);
-      if (clientTCP.connect(myDomain, 443)) {
-        Serial.println("Connection to Telegram server successful");
-        
-        String head = "--Esp32Cam\r\nContent-Disposition: form-data; name=\"chat_id\"; \r\n\r\n" + String(CHAT_IDS[i]) + "\r\n--Esp32Cam\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"esp32-cam.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
-        String tail = "\r\n--Esp32Cam--\r\n";
-
-        uint32_t imageLen = fb->len;
-        uint32_t extraLen = head.length() + tail.length();
-        uint32_t totalLen = imageLen + extraLen;
-
-        clientTCP.println("POST /bot"+BOTtoken+"/sendPhoto HTTP/1.1");
-        clientTCP.println("Host: " + String(myDomain));
-        clientTCP.println("Content-Length: " + String(totalLen));
-        clientTCP.println("Content-Type: multipart/form-data; boundary=Esp32Cam");
-        clientTCP.println();
-        clientTCP.print(head);
-
-        uint8_t *fbBuf = fb->buf;
-        size_t fbLen = fb->len;
-        for (size_t n=0; n<fbLen; n=n+1024) {
-          if (n+1024 < fbLen) {
-            clientTCP.write(fbBuf, 1024);
-            fbBuf += 1024;
-          }
-          else if (fbLen%1024>0) {
-            size_t remainder = fbLen%1024;
-            clientTCP.write(fbBuf, remainder);
-          }
-        }  
-
-        clientTCP.print(tail);
-
-        int waitTime = 10000;   // timeout 10 seconds
-        long startTimer = millis();
-        boolean state = false;
-
-        while ((startTimer + waitTime) > millis()) {
-          Serial.print(".");
-          delay(100);      
-          while (clientTCP.available()) {
-            char c = clientTCP.read();
-            if (state==true) getBody += String(c);        
-            if (c == '\n') {
-              if (getAll.length()==0) state=true; 
-              getAll = "";
-            } 
-            else if (c != '\r')
-              getAll += String(c);
-            startTimer = millis();
-          }
-          if (getBody.length()>0) break;
-        }
-        clientTCP.stop();
-        Serial.println();
-        
-        if (getBody.indexOf("\"ok\":true") != -1) {
-          Serial.printf("Photo sent successfully to chat ID %s\n", CHAT_IDS[i]);
-          break;  // Break the retry loop if successful
-        } else {
-          Serial.printf("Failed to send photo to chat ID %s. Response: %s\n", CHAT_IDS[i], getBody.c_str());
-          retries--;
-          if (retries > 0) {
-            Serial.printf("Retrying in 5 seconds...\n");
-            delay(5000);
-          }
-        }
-      } else {
-        Serial.printf("Connection to Telegram server failed for chat ID: %s\n", CHAT_IDS[i]);
-        retries--;
-        if (retries > 0) {
-          Serial.printf("Retrying in 5 seconds...\n");
-          delay(5000);
-        }
+  if (clientTCP.connect(myDomain, 443)) {
+    Serial.println("Connection successful");
+    Serial.print("Send photos");
+    
+    String head = "--Esp32Cam\r\nContent-Disposition: form-data; name=\"chat_id\"; \r\n\r\n";
+    for (int i = 0; i < NUM_CHAT_IDS; i++) {
+     head += CHAT_IDS[i];
+      if (i < NUM_CHAT_IDS - 1) {
+        head += ",";
       }
     }
-    if (retries == 0) {
-      Serial.printf("Failed to send photo to chat ID %s after 3 attempts\n", CHAT_IDS[i]);
+
+    head += "\r\n--Esp32Cam\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"esp32-cam.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
+    String tail = "\r\n--Esp32Cam--\r\n";
+
+    /* ::::::::::::::::: If you only use low framesize, such as CIF, QVGA, HQVGA and QQVGA, then use the variables below to save more memory. */
+    //uint16_t imageLen = fb->len;
+    //uint16_t extraLen = head.length() + tail.length();
+    //uint16_t totalLen = imageLen + extraLen;
+    /* ::::::::::::::::: */
+
+    uint32_t imageLen = fb->len;
+    uint32_t extraLen = head.length() + tail.length();
+    uint32_t totalLen = imageLen + extraLen;
+  
+    clientTCP.println("POST /bot"+BOTtoken+"/sendPhoto HTTP/1.1");
+    clientTCP.println("Host: " + String(myDomain));
+    clientTCP.println("Content-Length: " + String(totalLen));
+    clientTCP.println("Content-Type: multipart/form-data; boundary=Esp32Cam");
+    clientTCP.println();
+    clientTCP.print(head);
+  
+    uint8_t *fbBuf = fb->buf;
+    size_t fbLen = fb->len;
+    
+    for (size_t n=0;n<fbLen;n=n+1024) {
+      if (n+1024<fbLen) {
+        clientTCP.write(fbBuf, 1024);
+        fbBuf += 1024;
+      }
+      else if (fbLen%1024>0) {
+        size_t remainder = fbLen%1024;
+        clientTCP.write(fbBuf, remainder);
+      }
+    }  
+    
+    clientTCP.print(tail);
+    
+    esp_camera_fb_return(fb);
+    
+    int waitTime = 10000;   //--> timeout 10 seconds (To send photos.)
+    long startTimer = millis();
+    boolean state = false;
+    
+    while ((startTimer + waitTime) > millis()){
+      Serial.print(".");
+      delay(100);      
+      while (clientTCP.available()) {
+        char c = clientTCP.read();
+        if (state==true) getBody += String(c);        
+        if (c == '\n') {
+          if (getAll.length()==0) state=true; 
+          getAll = "";
+        } 
+        else if (c != '\r')
+          getAll += String(c);
+        startTimer = millis();
+      }
+      if (getBody.length()>0) break;
     }
+    clientTCP.stop();
+    Serial.println(getBody);
+
+    /* ::::::::::::::::: The condition to check if the photo was sent successfully or failed. */
+    // If the photo is successful or failed to send, a feedback message will be sent to Telegram.
+    if(getBody.length() > 0) {
+      String send_status = "";
+      send_status = getValue(getBody, ',', 0);
+      send_status = send_status.substring(6);
+      
+      if(send_status == "true") {
+        FB_MSG_is_photo_send_successfully(true);  //--> The photo was successfully sent and sent an information message that the photo was successfully sent to telegram.
+      }
+      if(send_status == "false") {
+        FB_MSG_is_photo_send_successfully(false); //--> The photo failed to send and sends an information message that the photo failed to send to telegram.
+      }
+    }
+    if(getBody.length() == 0) FB_MSG_is_photo_send_successfully(false); //--> The photo failed to send and sends an information message that the photo failed to send to telegram.
+    /* ::::::::::::::::: */
   }
-
-  esp_camera_fb_return(fb);
-
+  else {
+    getBody="Connected to api.telegram.org failed.";
+    Serial.println("Connected to api.telegram.org failed.");
+  }
   return getBody;
-} /*-------------------------------------------------------------------------------// Replace your existing sendPhotoTelegram function with this one The main changes in this function are:
-
-1. It now loops through all chat IDs to send the photo to each user individually.
-2. It includes the `flipImage(fb);` call to correct the image orientation.
-3. It maintains the existing logic for taking the photo and handling the flash.*/
-
+  /* ---------------------------------------- */
+}
+/* ________________________________________________________________________________ */
 
 /* ________________________________________________________________________________ VOID SETTUP() */
-void setupWiFi() {
+void setupWiFi()                                             // Add the new functions here, just before setup()
+{
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   
   unsigned long startAttemptTime = millis();
 
   while (WiFi.status() != WL_CONNECTED && 
-         millis() - startAttemptTime < WIFI_TIMEOUT_MS) {
-    delay(500);
-    Serial.print(".");
-  }
+         millis() - startAttemptTime < WIFI_TIMEOUT_MS){}
 
-  if (WiFi.status() != WL_CONNECTED) {
+  if(WiFi.status() != WL_CONNECTED){
     Serial.println("WIFI Connection FAILED");
     delay(WIFI_RECOVER_TIME_MS);
     ESP.restart();
@@ -596,41 +628,23 @@ void setupWiFi() {
 
   Serial.println("");
   Serial.println("WiFi connected");
-  Serial.print("IP address: ");
+  Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
 }
 
-/*void checkWiFiConnection()
+void checkWiFiConnection()
 {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi connection lost. Reconnecting...");
-    WiFi.reconnect();
-    int attempt = 0;
-    while (WiFi.status() != WL_CONNECTED && attempt < 20) {
-      delay(500);
-      Serial.print(".");
-      attempt++;
-    }
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("Failed to reconnect to WiFi. Restarting...");
-      ESP.restart();
-    }
-    Serial.println("WiFi reconnected");
-  }
-}*/
-void checkWiFiConnection() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi connection lost. Reconnecting...");
+  if(WiFi.status() != WL_CONNECTED){
+    Serial.println("Reconnecting to WiFi...");
     WiFi.disconnect();
     WiFi.reconnect();
     unsigned long startAttemptTime = millis();
     while (WiFi.status() != WL_CONNECTED && 
-           millis() - startAttemptTime < WIFI_TIMEOUT_MS) {
-      delay(500);
-      Serial.print(".");
-    }
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("WiFi reconnection failed. Will try again in next loop.");
+           millis() - startAttemptTime < WIFI_TIMEOUT_MS){}
+    if(WiFi.status() != WL_CONNECTED){
+      Serial.println("WiFi reconnection failed. Restarting...");
+      delay(WIFI_RECOVER_TIME_MS);
+      ESP.restart();
     } else {
       Serial.println("WiFi reconnected successfully");
     }
@@ -639,13 +653,18 @@ void checkWiFiConnection() {
 
 
 
-  void setup(){
+
+void setup(){
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //--> Disable brownout detector.
 
    /* ---------------------------------------- Init serial communication speed (baud rate). */
   Serial.begin(115200);
   delay(1000);
   /* ---------------------------------------- */
+
+  Serial.println();
+  Serial.println();
+  Serial.println("------------");
 
   /* ---------------------------------------- Starts the EEPROM, writes and reads the settings stored in the EEPROM. */
   EEPROM.begin(EEPROM_SIZE);
@@ -690,27 +709,15 @@ void checkWiFiConnection() {
   configInitCamera();
   Serial.println("Successfully configure and initialize the camera.");
   Serial.println();
-  /* ---------------------------------------- *intialize the camera of successfully configure and initialize t
+  /* ---------------------------------------- */
 
   /* ---------------------------------------- Connect to Wi-Fi. */
   WiFi.mode(WIFI_STA);
-  Serial.println();
   Serial.print("Connecting to ");
   Serial.println(ssid);
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+  WiFi.begin(ssid, password);
   setupWiFi();
-  clientTCP.setCACert(TELEGRAM_CERTIFICATE_ROOT);
-
-  Serial.println("Testing Telegram connection...");
-  if (bot.sendMessage(CHAT_IDS[0], "ESP32-CAM starting up!", "")) {
-    Serial.println("Telegram connection test successful");
-  } else {
-    Serial.println("Telegram connection test failed");
-  }
+  clientTCP.setCACert(TELEGRAM_CERTIFICATE_ROOT); //--> Add root certificate for api.telegram.org
 
   /* ::::::::::::::::: The process of connecting ESP32 CAM with WiFi Hotspot / WiFi Router. */
   /*
@@ -720,7 +727,18 @@ void checkWiFiConnection() {
    */
   int connecting_process_timed_out = 20; //--> 20 = 20 seconds.
   connecting_process_timed_out = connecting_process_timed_out * 2;
-
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    LEDFlash_State(ON);
+    delay(250);
+    LEDFlash_State(OFF);
+    delay(250);
+    if(connecting_process_timed_out > 0) connecting_process_timed_out--;
+    if(connecting_process_timed_out == 0) {
+      delay(1000);
+      ESP.restart();
+    }
+  }
   /* ::::::::::::::::: */
   
   LEDFlash_State(OFF);
@@ -742,8 +760,7 @@ void checkWiFiConnection() {
 /* ________________________________________________________________________________ VOID LOOP() */
 void loop() {
   /* ---------------------------------------- Conditions for taking and sending photos. */
-  checkWiFiConnection();
-  //Serial.printf("WiFi status: %d\n", WiFi.status());  // Check WiFi connection at the start of each loop
+  checkWiFiConnection();  // Check WiFi connection at the start of each loop
   if(sendPhoto) {
     Serial.println("Preparing photo...");
     sendPhotoTelegram(); 
@@ -778,19 +795,11 @@ void loop() {
    * So by checking for new messages every 20 seconds, the PIR sensor readings can be prioritized.
    */
   if(millis() > lastTimeBotRan + botRequestDelay) {
-    Serial.println("Checking for new messages...");
     int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
-    Serial.println("Number of new messages: " + String(numNewMessages));
-    /*while (numNewMessages) {
+    while (numNewMessages) {
       Serial.println("got response");
       handleNewMessages(numNewMessages);
       numNewMessages = bot.getUpdates(bot.last_message_received + 1);
-    }*/
-    if (numNewMessages > 0) {
-      Serial.println("New messages found, handling...");
-      handleNewMessages(numNewMessages);
-    } else {
-      Serial.println("No new messages.");
     }
     lastTimeBotRan = millis();
   }
